@@ -1,0 +1,323 @@
+/* Hello, Emacs, this is -*-C-*- */
+/*
+ * gfos.trm: the GFOS (AmigaOS 3.2) window terminal for gnuplot.
+ * Draws in an Intuition window on the default public screen through
+ * gfos_backend.h (gfos_amiga.c on AmigaOS; tests/gfos_host.c on a PC,
+ * where the same code writes a PPM picture for the tests).
+ *
+ *   set terminal gfos {size <w>,<h>} {title "<text>"}
+ *
+ * It is the default terminal on GFOS. "gnuplot -persist" keeps the window
+ * open after gnuplot ends, until its close gadget, Esc, q or Ctrl-C.
+ * From DalsinAI/gfamigagnuplot. MIT, Copyright (c) 2026 AmiCradle Team.
+ */
+#include "driver.h"
+
+#ifdef TERM_REGISTER
+register_term(gfos)
+#endif
+
+#ifdef TERM_PROTO
+TERM_PUBLIC void GFOS_options(void);
+TERM_PUBLIC void GFOS_init(void);
+TERM_PUBLIC void GFOS_reset(void);
+TERM_PUBLIC void GFOS_text(void);
+TERM_PUBLIC void GFOS_graphics(void);
+TERM_PUBLIC void GFOS_move(unsigned int x, unsigned int y);
+TERM_PUBLIC void GFOS_vector(unsigned int x, unsigned int y);
+TERM_PUBLIC void GFOS_linetype(int lt);
+TERM_PUBLIC void GFOS_put_text(unsigned int x, unsigned int y, const char *str);
+TERM_PUBLIC int GFOS_text_angle(float ang);
+TERM_PUBLIC int GFOS_justify_text(enum JUSTIFY mode);
+TERM_PUBLIC void GFOS_fillbox(int style, unsigned int x, unsigned int y, unsigned int w, unsigned int h);
+TERM_PUBLIC int GFOS_make_palette(t_sm_palette *palette);
+TERM_PUBLIC void GFOS_set_color(t_colorspec *colorspec);
+TERM_PUBLIC void GFOS_filled_polygon(int points, gpiPoint *corners);
+#define GFOS_XMAX 640
+#define GFOS_YMAX 480
+#endif /* TERM_PROTO */
+
+#ifndef TERM_PROTO_ONLY
+#ifdef TERM_BODY
+#include "gfos_backend.h"
+#include "gfos_core.h"
+#if LT_AXIS != GFOS_LT_AXIS || LT_BLACK != GFOS_LT_BLACK || LT_NODRAW != GFOS_LT_NODRAW || LT_BACKGROUND != GFOS_LT_BACKGROUND
+# error "gfos_core.h's line types don't match gnuplot's term_api.h"
+#endif
+
+static int gfos_w = GFOS_XMAX, gfos_h = GFOS_YMAX;
+static char gfos_title[80] = "gnuplot";
+static unsigned long gfos_rgb = 0;
+static int gfos_just = 0;
+static int gfos_cx, gfos_cy;	/* the pen, in window pixels */
+static int gfos_cell_w = 8, gfos_cell_h = 8, gfos_baseline = 6;
+
+enum GFOS_id { GFOS_SIZE, GFOS_TITLE, GFOS_OTHER };
+static struct gen_table GFOS_opts[] = {
+    { "si$ze", GFOS_SIZE },
+    { "ti$tle", GFOS_TITLE },
+    { NULL, GFOS_OTHER }
+};
+
+static void
+GFOS_sizes(void)
+{
+    gb_font_size(&gfos_cell_w, &gfos_cell_h, &gfos_baseline);
+    term->xmax = gfos_w;
+    term->ymax = gfos_h;
+    term->h_char = gfos_cell_w;
+    term->v_char = gfos_cell_h;
+    term->h_tic = term->v_tic = (gfos_cell_h > 10 ? gfos_cell_h : 10) / 2;
+}
+
+TERM_PUBLIC void
+GFOS_options()
+{
+    while (!END_OF_COMMAND) {
+	switch (lookup_table(&GFOS_opts[0], c_token)) {
+	case GFOS_SIZE: {
+	    int w, h;
+	    c_token++;
+	    w = int_expression();
+	    if (!equals(c_token, ","))
+		int_error(c_token, "expecting: size <width>,<height>");
+	    c_token++;
+	    h = int_expression();
+	    if (w < 64 || h < 48 || w > 4096 || h > 4096)
+		int_error(c_token, "size from 64,48 to 4096,4096");
+	    gfos_w = w;
+	    gfos_h = h;
+	    break;
+	}
+	case GFOS_TITLE: {
+	    char *s;
+	    c_token++;
+	    if (!(s = try_to_get_string()))
+		int_error(c_token, "expecting: title \"<text>\"");
+	    strncpy(gfos_title, s, sizeof(gfos_title) - 1);
+	    gfos_title[sizeof(gfos_title) - 1] = '\0';
+	    free(s);
+	    break;
+	}
+	default:
+	    int_error(c_token, "unrecognized option");
+	}
+    }
+    GFOS_sizes();
+    snprintf(term_options, MAX_LINE_LEN, "size %d,%d title \"%s\"", gfos_w, gfos_h, gfos_title);
+}
+
+TERM_PUBLIC void
+GFOS_init()
+{
+    GFOS_sizes();
+}
+
+TERM_PUBLIC void
+GFOS_reset()
+{
+    /* gnuplot -persist: the window stays until it is closed */
+    if (persist_cl && gb_is_open())
+	gb_wait_close();
+    gb_close();
+}
+
+TERM_PUBLIC void
+GFOS_graphics()
+{
+    if (gb_is_open() && gb_poll_close())
+	;	/* closed with its gadget since the last plot: a new one opens */
+    if (!gb_open(gfos_w, gfos_h, gfos_title))
+	int_error(NO_CARET, "gfos: can't open a window");
+    gb_clear(0xffffff);
+    gfos_rgb = 0;
+    gb_colour(gfos_rgb);
+}
+
+TERM_PUBLIC void
+GFOS_text()
+{
+    gb_flush();
+}
+
+TERM_PUBLIC void
+GFOS_move(unsigned int x, unsigned int y)
+{
+    gfos_cx = (int)x;
+    gfos_cy = gfos_flip_y((int)y, gfos_h);
+}
+
+TERM_PUBLIC void
+GFOS_vector(unsigned int x, unsigned int y)
+{
+    int x0 = gfos_cx, y0 = gfos_cy, x1 = (int)x, y1 = gfos_flip_y((int)y, gfos_h);
+    gfos_cx = x1;
+    gfos_cy = y1;
+    if (gfos_clip_line(&x0, &y0, &x1, &y1, gfos_w, gfos_h)) {
+	gb_move(x0, y0);
+	gb_draw(x1, y1);
+    }
+}
+
+TERM_PUBLIC void
+GFOS_linetype(int lt)
+{
+    if (lt == GFOS_LT_NODRAW)
+	return;
+    gfos_rgb = gfos_lt_rgb(lt);
+    gb_colour(gfos_rgb);
+}
+
+TERM_PUBLIC void
+GFOS_put_text(unsigned int x, unsigned int y, const char *str)
+{
+    int w;
+    if (!str || !*str)
+	return;
+    w = gb_text_width(str);
+    /* gnuplot's y is the middle of the text */
+    gb_text(gfos_justify_x((int)x, w, gfos_just),
+	    gfos_flip_y((int)y, gfos_h) - gfos_cell_h / 2, str);
+}
+
+TERM_PUBLIC int
+GFOS_text_angle(float ang)
+{
+    return ang == 0;	/* only across: gnuplot then sets rotated labels across */
+}
+
+TERM_PUBLIC int
+GFOS_justify_text(enum JUSTIFY mode)
+{
+    gfos_just = mode == CENTRE ? 1 : mode == RIGHT ? 2 : 0;
+    return TRUE;
+}
+
+/* the colour a fill style gives: empty is the background, solid fades the
+ * current colour by its density, patterns are drawn solid */
+static unsigned long
+GFOS_fill_rgb(int style)
+{
+    int density = style >> 4;
+    switch (style & 0xf) {
+    case FS_EMPTY:
+	return 0xffffff;
+    case FS_SOLID:
+    case FS_TRANSPARENT_SOLID:
+	return gfos_shade(gfos_rgb, density, 0xffffff);
+    default:
+	return gfos_rgb;
+    }
+}
+
+TERM_PUBLIC void
+GFOS_fillbox(int style, unsigned int x, unsigned int y, unsigned int w, unsigned int h)
+{
+    int xy[8];
+    int top = gfos_flip_y((int)(y + h) - 1, gfos_h), bot = gfos_flip_y((int)y, gfos_h);
+    xy[0] = x;		xy[1] = top;
+    xy[2] = x + w - 1;	xy[3] = top;
+    xy[4] = x + w - 1;	xy[5] = bot;
+    xy[6] = x;		xy[7] = bot;
+    gb_colour(GFOS_fill_rgb(style));
+    gb_polygon(4, xy);
+    gb_colour(gfos_rgb);
+}
+
+TERM_PUBLIC int
+GFOS_make_palette(t_sm_palette *palette)
+{
+    (void)palette;
+    return 0;	/* any colour: pens are taken as colours come */
+}
+
+TERM_PUBLIC void
+GFOS_set_color(t_colorspec *colorspec)
+{
+    rgb255_color c;
+    switch (colorspec->type) {
+    case TC_LT:
+	GFOS_linetype(colorspec->lt);
+	return;
+    case TC_FRAC:
+	rgb255maxcolors_from_gray(colorspec->value, &c);
+	gfos_rgb = (unsigned long)c.r << 16 | (unsigned long)c.g << 8 | c.b;
+	break;
+    case TC_RGB:
+	gfos_rgb = (unsigned long)colorspec->lt & 0xffffff;
+	break;
+    default:
+	return;
+    }
+    gb_colour(gfos_rgb);
+}
+
+TERM_PUBLIC void
+GFOS_filled_polygon(int points, gpiPoint *corners)
+{
+    int i, *xy;
+    if (points < 3)
+	return;
+    xy = gp_alloc(2 * points * sizeof(int), "gfos polygon");
+    for (i = 0; i < points; i++) {
+	xy[2 * i] = corners[i].x;
+	xy[2 * i + 1] = gfos_flip_y(corners[i].y, gfos_h);
+    }
+    gb_colour(GFOS_fill_rgb(corners->style));
+    gb_polygon(points, xy);
+    gb_colour(gfos_rgb);
+    free(xy);
+}
+
+#endif /* TERM_BODY */
+
+#ifdef TERM_TABLE
+TERM_TABLE_START(gfos_driver)
+    "gfos", "GFOS (AmigaOS 3.2) window",
+    GFOS_XMAX, GFOS_YMAX, 8, 8, 5, 5,
+    GFOS_options, GFOS_init, GFOS_reset,
+    GFOS_text, null_scale, GFOS_graphics, GFOS_move, GFOS_vector,
+    GFOS_linetype, GFOS_put_text, GFOS_text_angle,
+    GFOS_justify_text, do_point, do_arrow, null_set_font,
+    0,				/* pointsize */
+    TERM_CAN_MULTIPLOT,
+    0, 0, GFOS_fillbox, 0,	/* suspend, resume, fillbox, linewidth */
+#ifdef USE_MOUSE
+    0, 0, 0, 0, 0,		/* no mousing */
+#endif
+    GFOS_make_palette, 0,	/* make_palette, previous_palette */
+    GFOS_set_color, GFOS_filled_polygon,
+    0				/* image: gnuplot draws images as polygons */
+TERM_TABLE_END(gfos_driver)
+
+#undef LAST_TERM
+#define LAST_TERM gfos_driver
+
+#endif /* TERM_TABLE */
+#endif /* TERM_PROTO_ONLY */
+
+#ifdef TERM_HELP
+START_HELP(gfos)
+"1 gfos",
+"?commands set terminal gfos",
+"?set terminal gfos",
+"?set term gfos",
+"?terminal gfos",
+"?term gfos",
+"?gfos",
+" The `gfos` terminal draws in a window on the GFOS (AmigaOS 3.2) default",
+" public screen, normally Workbench. It is the default terminal on GFOS.",
+"",
+" Syntax:",
+"       set terminal gfos {size <width>,<height>} {title \"<text>\"}",
+"",
+" `size` is the inside of the window in pixels (640,480 unless set).",
+" `title` is the window's title (\"gnuplot\").",
+"",
+" Each plot redraws the window. Closing it with its close gadget opens a",
+" new one at the next plot. With `gnuplot -persist` the window stays open",
+" after gnuplot ends, until its close gadget, Esc, q or Ctrl-C.",
+" Text is drawn across only (rotated labels are set across), in the",
+" screen's font; filled areas are solid, faded by their density."
+END_HELP(gfos)
+#endif /* TERM_HELP */
