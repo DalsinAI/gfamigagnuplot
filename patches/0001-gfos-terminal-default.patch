@@ -1,0 +1,32 @@
+diff --git a/src/term.c b/src/term.c
+index 9354434..6096797 100644
+--- a/src/term.c
++++ b/src/term.c
+@@ -1832,6 +1832,11 @@ init_terminal()
+ 	term_name = "svga";
+ #endif
+ 
++#ifdef GFOS_TERM
++	if (term_name == (char *) NULL)
++	    term_name = "gfos";
++#endif
++
+ #ifdef GRASS
+ 	term_name = "grass";
+ #endif
+diff --git a/src/term.h b/src/term.h
+index 273ddf6..a8fc7f2 100644
+--- a/src/term.h
++++ b/src/term.h
+@@ -130,6 +130,11 @@
+ # include "aquaterm.trm"
+ #endif
+ 
++/* GFOS (AmigaOS 3.2) window, from DalsinAI/gfamigagnuplot */
++#ifdef GFOS_TERM
++# include "gfos.trm"
++#endif
++
+ /* OS/2 */
+ #ifdef OS2
+ /* presentation manager */

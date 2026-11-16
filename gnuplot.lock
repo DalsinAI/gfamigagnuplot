@@ -1,0 +1,10 @@
+# What this port builds on: fetched at build time, never shipped.
+# gnuplot (its own licence: Copyright file) 6.0.5, the release tarball
+# (configure already made), checked by its SHA-256
+GP_URL=https://downloads.sourceforge.net/project/gnuplot/gnuplot/6.0.5/gnuplot-6.0.5.tar.gz
+GP_SHA256=73237f37f03306d68bfae133a9a50d5e9341384e198d5ab37eeca9ab534deed8
+GP_VERSION=6.0.5
+# Our own pieces, fetched at these commits
+# fpuauto (common/fpuauto): the FPU when there is one
+FPA_REPO=https://github.com/DalsinAI/amicradle-guest
+FPA_COMMIT=4a784c84b878fe0e9abade7006e67e1ded9b165c
