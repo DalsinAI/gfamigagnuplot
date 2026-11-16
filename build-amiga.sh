@@ -62,10 +62,10 @@ LF="-noixemul -m68040 -specs=$HERE/scripts/m68k-soft-m68040.specs -specs=$FA/fpu
 
 # --- the gfos terminal's window side, the stack and $VER ---------------------------
 L="$WORK/gfos"; rm -rf "$L"; mkdir -p "$L"
-for f in gfos_core gfos_amiga; do
+for f in gfos_core gfos_amiga gp_compat; do
     m68k-amigaos-gcc $CF -Wall -I"$HERE/amiga" -c "$HERE/amiga/$f.c" -o "$L/$f.o"
 done
-m68k-amigaos-ar rcs "$L/libgfos.a" "$L/gfos_core.o" "$L/gfos_amiga.o"
+m68k-amigaos-ar rcs "$L/libgfos.a" "$L/gfos_core.o" "$L/gfos_amiga.o" "$L/gp_compat.o"
 m68k-amigaos-gcc $CF -DGP_AMIGA_VERSION=\"$GP_VERSION\" -DGP_AMIGA_DATE=\"$(date -u +%d.%m.%Y)\" \
     -c "$HERE/amiga/gp_amiga.c" -o "$L/gp_amiga.o"
 
@@ -76,7 +76,7 @@ if [ "$(cat "$B/.src" 2>/dev/null)" != "$(cat "$SRC/.patched")-$(sha256sum "$0" 
     # shellcheck disable=SC2086
     (cd "$B" && "$SRC/configure" --host=m68k-amigaos --build="$(uname -m)-pc-linux-gnu" \
         $GP_CONFIGURE --with-gihdir=SYS:Docs/gnuplot \
-        CC=m68k-amigaos-gcc CFLAGS="$CF" CPPFLAGS="-DGFOS_TERM -I$HERE/amiga" LDFLAGS="$LF" \
+        CC=m68k-amigaos-gcc CFLAGS="$CF" CPPFLAGS="-DGFOS_TERM -I$HERE/amiga -include $HERE/amiga/gp_compat.h" LDFLAGS="$LF" \
         LIBS="$L/gp_amiga.o $L/libgfos.a" > configure.log 2>&1) || { tail -40 "$B/configure.log"; exit 1; }
     # the AmigaDOS console edits lines and keeps their history: gnuplot's
     # own line editor (raw terminal mode) is not used

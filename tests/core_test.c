@@ -2,7 +2,10 @@
  * placement, line clipping and the pen table.
  * MIT, Copyright (c) 2026 AmiCradle Team. */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "gfos_core.h"
+#include "gp_compat.h"
 
 static int fails, checks;
 static void ok(int c, const char *what) { checks++; if (!c) { fails++; printf("FAIL %s\n", what); } }
@@ -68,6 +71,12 @@ int main(void)
 	next_pen = -1;
 	ok(gfos_pen_for(&p, 0x123456, ob, rel, NULL) == -1, "no pen to be had");
 
+	{	/* gp_compat.c's strndup */
+		char *d = strndup("gnuplot", 3), *e = strndup("ab", 10);
+		ok(d && strcmp(d, "gnu") == 0, "strndup cuts");
+		ok(e && strcmp(e, "ab") == 0, "strndup stops at the end");
+		free(d); free(e);
+	}
 	printf("gfos_core: %d of %d checks passed\n", checks - fails, checks);
 	return fails != 0;
 }

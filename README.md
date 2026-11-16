@@ -94,6 +94,8 @@ demos, for a lab).
 - `amiga/gfos_amiga.c`: the window: Intuition, graphics.library pens,
   `AreaDraw` fills with a TmpRas, `TextLength`/`Text`, IDCMP for closing.
 - `amiga/gp_amiga.c`: stack and `$VER`.
+- `amiga/gp_compat.c`/`.h`: `strndup`, which libnix lacks, under its own
+  name (taken into every file with `-include`), tested on the PC.
 
 gnuplot is under its own licence (`SYS:Docs/gnuplot/Copyright`); this
 port's own files are MIT.
